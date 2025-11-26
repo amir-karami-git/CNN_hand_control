@@ -8,7 +8,7 @@ IMG_DIR = "/home/amir-admin/projects/CNN_hand_control/datasets/images/train"    
 LABEL_DIR = "/home/amir-admin/projects/CNN_hand_control/datasets/labels/train"  # change to your labels folder
 NUM_KEYPOINTS = 21            # 21 for hands (x, y, v)
 DRAW_SKELETON = True          # set False if you only want dots
-SHOW_NAMES = False            # set True to label each point name
+SHOW_NAMES = True            # set True to label each point name
 # -----------------------------------------------------------------------------
 
 KPT_NAMES = [
