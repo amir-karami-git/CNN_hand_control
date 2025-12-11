@@ -4,12 +4,14 @@ import cv2
 import numpy as np
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-IMG_DIR = "/home/amir-admin/projects/CNN_hand_control/datasets/images/train"    # change to your images folder
-LABEL_DIR = "/home/amir-admin/projects/CNN_hand_control/datasets/labels/train"  # change to your labels folder
-NUM_KEYPOINTS = 21            # 21 for hands (x, y, v)
-DRAW_SKELETON = True          # set False if you only want dots
-SHOW_NAMES = True            # set True to label each point name
-# -----------------------------------------------------------------------------
+IMG_DIR = "/home/amir-admin/projects/CNN_hand_control/datasets/images/val"    # change to your images folder
+LABEL_DIR = "/home/amir-admin/projects/CNN_hand_control/datasets/labels/val"  # change to your labels folder
+
+NUM_KEYPOINTS = 21            # 21 keypoints (x, y, v)
+DRAW_SKELETON = False         # set True if you want bones between points
+SHOW_NAMES = False            # set True to write text label near each keypoint
+DRAW_BOX = True               # set True to draw the hand bounding box
+# ──────────────────────────────────────────────────────────────────────────────
 
 KPT_NAMES = [
     "wrist",
@@ -24,9 +26,9 @@ KPT_NAMES = [
 SKELETON = [
     (0, 1), (1, 2), (2, 3), (3, 4),          # thumb
     (0, 5), (5, 6), (6, 7), (7, 8),          # index
-    (0, 9), (9,10), (10,11), (11,12),        # middle
-    (0,13), (13,14), (14,15), (15,16),       # ring
-    (0,17), (17,18), (18,19), (19,20)        # pinky
+    (0, 9), (9, 10), (10, 11), (11, 12),     # middle
+    (0, 13), (13, 14), (14, 15), (15, 16),   # ring
+    (0, 17), (17, 18), (18, 19), (19, 20)    # pinky
 ]
 
 def parse_yolo_kpt_line(line, num_kpts=NUM_KEYPOINTS):
@@ -36,25 +38,29 @@ def parse_yolo_kpt_line(line, num_kpts=NUM_KEYPOINTS):
     All coords are normalized in [0,1].
     """
     parts = line.strip().split()
-    if len(parts) < 5 + 3*num_kpts:
+    if len(parts) < 5 + 3 * num_kpts:
         raise ValueError(f"Label line too short for {num_kpts} keypoints:\n{line}")
     cls = int(float(parts[0]))
     cx, cy, w, h = map(float, parts[1:5])
-    kpts = np.array(list(map(float, parts[5:5+3*num_kpts])), dtype=np.float32).reshape(num_kpts, 3)
+    kpts = np.array(list(map(float, parts[5:5 + 3 * num_kpts])), dtype=np.float32).reshape(num_kpts, 3)
     return cls, (cx, cy, w, h), kpts
 
-def draw_overlay(img, bbox, kpts, draw_skeleton=True, show_names=False):
+def draw_overlay(img, bbox, kpts,
+                 draw_skeleton=True,
+                 show_names=False,
+                 draw_box=True):
     H, W = img.shape[:2]
 
-    # draw bbox
-    cx, cy, bw, bh = bbox
-    x1 = int((cx - bw/2) * W)
-    y1 = int((cy - bh/2) * H)
-    x2 = int((cx + bw/2) * W)
-    y2 = int((cy + bh/2) * H)
-    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 255), 2)
+    # ---- draw hand bounding box from (cx, cy, w, h) ----
+    if draw_box:
+        cx, cy, bw, bh = bbox  # all normalized [0,1]
+        x1 = int((cx - bw / 2) * W)
+        y1 = int((cy - bh / 2) * H)
+        x2 = int((cx + bw / 2) * W)
+        y2 = int((cy + bh / 2) * H)
+        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)  # red box
 
-    # draw skeleton lines (only if both endpoints have v>0)
+    # ---- draw skeleton lines (only if both endpoints have v > 0) ----
     if draw_skeleton:
         for a, b in SKELETON:
             if a < len(kpts) and b < len(kpts):
@@ -65,24 +71,27 @@ def draw_overlay(img, bbox, kpts, draw_skeleton=True, show_names=False):
                     pb = (int(xb * W), int(yb * H))
                     cv2.line(img, pa, pb, (255, 255, 255), 1)
 
-    # draw points
+    # ---- draw keypoints ----
     for i, (kx, ky, v) in enumerate(kpts):
         if v <= 0:
             continue
         px, py = int(kx * W), int(ky * H)
-        color = (0, 255, 0) if int(v) == 2 else (0, 165, 255)  # visible=green, occluded=orange
+        # visible=2 → green, else (e.g. 1) → orange
+        color = (0, 255, 0) if int(v) == 2 else (0, 165, 255)
         cv2.circle(img, (px, py), 3, color, -1)
         if show_names and i < len(KPT_NAMES):
-            cv2.putText(img, KPT_NAMES[i], (px+4, py-4),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255,255,255), 1, cv2.LINE_AA)
+            cv2.putText(img, KPT_NAMES[i], (px + 4, py - 4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.35,
+                        (255, 255, 255), 1, cv2.LINE_AA)
 
 def find_matching_image(label_file):
     base = os.path.splitext(os.path.basename(label_file))[0]
+    # try same folder with common extensions
     for ext in [".jpg", ".jpeg", ".png", ".bmp", ".webp"]:
         p = os.path.join(IMG_DIR, base + ext)
         if os.path.isfile(p):
             return p
-    # fallback: search recursively
+    # fallback: recursive search
     for ext in ["**/*.jpg", "**/*.jpeg", "**/*.png", "**/*.bmp", "**/*.webp"]:
         for p in glob.glob(os.path.join(IMG_DIR, ext), recursive=True):
             if os.path.splitext(os.path.basename(p))[0] == base:
@@ -107,20 +116,27 @@ def show_image_with_labels(image_path, label_path, index, total):
         lines = [ln.strip() for ln in f if ln.strip()]
     for line in lines:
         _, bbox, kpts = parse_yolo_kpt_line(line, NUM_KEYPOINTS)
-        draw_overlay(img, bbox, kpts, draw_skeleton=DRAW_SKELETON, show_names=SHOW_NAMES)
+        draw_overlay(
+            img, bbox, kpts,
+            draw_skeleton=DRAW_SKELETON,
+            show_names=SHOW_NAMES,
+            draw_box=DRAW_BOX
+        )
 
-    # small on-image instructions
-    msg = f"[{index+1}/{total}]  ←/A: prev   →/D: next   Q/ESC: quit"
-    cv2.putText(img, msg, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 3, cv2.LINE_AA)
-    cv2.putText(img, msg, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 1, cv2.LINE_AA)
+    # on-image instructions
+    msg = f"[{index + 1}/{total}]  ←/A: prev   →/D: next   Q/ESC: quit"
+    cv2.putText(img, msg, (12, 28), cv2.FONT_HERSHEY_SIMPLEX,
+                0.7, (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(img, msg, (12, 28), cv2.FONT_HERSHEY_SIMPLEX,
+                0.7, (255, 255, 255), 1, cv2.LINE_AA)
     return img
 
 def is_left(key):
-    # cover multiple platforms: arrow-left, and A/a
+    # arrow-left, or A/a
     return key in (81, 2424832, ord('a'), ord('A'))  # 81 (Linux), 2424832 (Windows)
 
 def is_right(key):
-    # cover multiple platforms: arrow-right, and D/d
+    # arrow-right, or D/d
     return key in (83, 2555904, ord('d'), ord('D'))  # 83 (Linux), 2555904 (Windows)
 
 def main():
@@ -130,7 +146,7 @@ def main():
         return
 
     i = 0
-    win = "YOLO Keypoint Viewer"
+    win = "YOLO Hand Keypoint Viewer"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
 
     while True:
@@ -142,13 +158,13 @@ def main():
         cv2.imshow(win, img)
         key = cv2.waitKeyEx(0)  # wait indefinitely, capture special keys
 
-        if key in (27, ord('q'), ord('Q')):  # ESC or Q
+        if key in (27, ord('q'), ord('Q')):      # ESC or Q
             break
         elif is_right(key):
             i = (i + 1) % len(pairs)
         elif is_left(key):
             i = (i - 1) % len(pairs)
-        # else: ignore other keys and keep image
+        # else ignore other keys
 
     cv2.destroyAllWindows()
 
